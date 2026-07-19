@@ -1,0 +1,14 @@
+{
+  "name": "internet-browser-codespace",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "forwardPorts": [5800],
+  "portsAttributes": {
+    "5800": {
+      "label": "Firefox (full browser)",
+      "onAutoForward": "notify"
+    }
+  },
+  "shutdownAction": "stopCompose"
+}

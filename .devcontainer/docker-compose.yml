@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/base:ubuntu
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+
+  firefox:
+    image: jlesage/firefox:latest
+    shm_size: "1gb"
+    ports:
+      - "5800:5800"
+    restart: unless-stopped
