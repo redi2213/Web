@@ -1,0 +1,87 @@
+name: Fetch Page
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Page address (e.g. https://example.com)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-page
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install browser
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Fetch page
+        env:
+          TARGET_URL: ${{ inputs.url }}
+        run: |
+          python - <<'PY'
+          import os, re, datetime
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["TARGET_URL"].strip()
+          if not re.match(r"^https?://", url):
+              url = "https://" + url
+
+          slug = re.sub(r"[^a-zA-Z0-9]+", "-", url)[:50].strip("-")
+          ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+          d = f"out/{ts}-{slug}"
+          os.makedirs(d, exist_ok=True)
+
+          with sync_playwright() as p:
+              b = p.chromium.launch()
+              pg = b.new_page(viewport={"width": 430, "height": 900})
+              try:
+                  pg.goto(url, wait_until="networkidle", timeout=45000)
+              except Exception:
+                  pg.goto(url, wait_until="domcontentloaded", timeout=45000)
+                  pg.wait_for_timeout(3000)
+
+              title = pg.title()
+              try:
+                  pg.screenshot(path=f"{d}/page.png", full_page=True)
+              except Exception:
+                  pg.screenshot(path=f"{d}/page.png")
+              try:
+                  pg.pdf(path=f"{d}/page.pdf")
+              except Exception:
+                  pass
+              text = pg.inner_text("body")
+              with open(f"{d}/page.txt", "w", encoding="utf-8") as f:
+                  f.write(text)
+              b.close()
+
+          with open(f"{d}/README.md", "w", encoding="utf-8") as f:
+              f.write(f"# {title}\n\n{url}\n\n![page](page.png)\n\n[PDF](page.pdf) | [Text](page.txt)\n")
+          print("Saved to", d)
+          PY
+
+      - name: Commit result
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add out
+          git commit -m "Fetched: ${{ github.run_number }}" || exit 0
+          git pull --rebase origin main
+          git push
