@@ -1,0 +1,43 @@
+name: SOCKS5 Proxy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Install microsocks
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y microsocks
+
+      - name: Start SOCKS5 proxy
+        run: microsocks -p 1080 &
+
+      - name: Install Cloudflare Tunnel
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+
+      - name: Expose proxy and print config
+        run: |
+          ./cloudflared tunnel --url socks5://localhost:1080 --no-autoupdate 2>&1 | tee /tmp/tunnel.log &
+          sleep 8
+          TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1)
+          echo ""
+          echo "========================================"
+          echo "  SOCKS5 Proxy Ready!"
+          echo "========================================"
+          echo "  Host : ${TUNNEL_URL#https://}"
+          echo "  Port : 443"
+          echo "  Type : SOCKS5 over HTTPS"
+          echo "========================================"
+          echo ""
+          echo "  V2Ray / Nekobox Config:"
+          echo "  socks5h://${TUNNEL_URL#https://}:443"
+          echo ""
+          # Keep alive
+          sleep 20000
