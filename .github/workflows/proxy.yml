@@ -9,35 +9,58 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Install microsocks
+      - name: Install shadowsocks-libev
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y microsocks
+          sudo apt-get install -y shadowsocks-libev
 
-      - name: Start SOCKS5 proxy
-        run: microsocks -p 1080 &
+      - name: Install v2ray-plugin
+        run: |
+          wget -q https://github.com/shadowsocks/v2ray-plugin/releases/download/v1.3.2/v2ray-plugin-linux-amd64-v1.3.2.tar.gz
+          tar -xzf v2ray-plugin-linux-amd64-v1.3.2.tar.gz
+          sudo mv v2ray-plugin_linux_amd64 /usr/local/bin/v2ray-plugin
+          chmod +x /usr/local/bin/v2ray-plugin
+
+      - name: Start Shadowsocks with WebSocket
+        run: |
+          ss-server \
+            -s 0.0.0.0 \
+            -p 8388 \
+            -k "github-proxy-2024" \
+            -m chacha20-ietf-poly1305 \
+            --plugin v2ray-plugin \
+            --plugin-opts "server;path=/ws" \
+            -u &
+          sleep 2
 
       - name: Install Cloudflare Tunnel
         run: |
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
 
-      - name: Expose proxy and print config
+      - name: Expose and print config
         run: |
-          ./cloudflared tunnel --url socks5://localhost:1080 --no-autoupdate 2>&1 | tee /tmp/tunnel.log &
+          ./cloudflared tunnel --url http://localhost:8388 --no-autoupdate 2>&1 | tee /tmp/tunnel.log &
           sleep 8
-          TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1)
+          HOST=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1 | sed 's|https://||')
+          PASS="github-proxy-2024"
+          METHOD="chacha20-ietf-poly1305"
+          PLUGIN="v2ray-plugin"
+          PLUGIN_OPTS="tls;host=${HOST};path=/ws"
+          B64=$(echo -n "${METHOD}:${PASS}" | base64 -w 0)
+          CONFIG="ss://${B64}@${HOST}:443?plugin=${PLUGIN}&plugin-opts=${PLUGIN_OPTS}#GitHub-Proxy"
           echo ""
           echo "========================================"
-          echo "  SOCKS5 Proxy Ready!"
+          echo "  Shadowsocks Proxy Ready!"
           echo "========================================"
-          echo "  Host : ${TUNNEL_URL#https://}"
-          echo "  Port : 443"
-          echo "  Type : SOCKS5 over HTTPS"
+          echo "  Host   : ${HOST}"
+          echo "  Port   : 443"
+          echo "  Method : ${METHOD}"
+          echo "  Pass   : ${PASS}"
+          echo "  Plugin : v2ray-plugin (ws+tls)"
           echo "========================================"
           echo ""
-          echo "  V2Ray / Nekobox Config:"
-          echo "  socks5h://${TUNNEL_URL#https://}:443"
+          echo "  Import link (copy to Nekobox/V2RayNG):"
+          echo "  ${CONFIG}"
           echo ""
-          # Keep alive
           sleep 20000
